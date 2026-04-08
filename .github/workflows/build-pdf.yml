@@ -1,0 +1,83 @@
+name: Build PDFs
+
+on:
+  push:
+    paths:
+      - 'books/**'
+      - 'templates/**'
+  workflow_dispatch:
+    inputs:
+      book:
+        description: 'Book directory name (leave empty to build all)'
+        required: false
+
+jobs:
+  detect-books:
+    runs-on: ubuntu-latest
+    outputs:
+      books: ${{ steps.find.outputs.books }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect which books to build
+        id: find
+        run: |
+          if [ -n "${{ github.event.inputs.book }}" ]; then
+            echo "books=[\"${{ github.event.inputs.book }}\"]" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            # Find books with changed files
+            CHANGED=$(git diff --name-only HEAD~1 HEAD -- books/ | cut -d/ -f2 | sort -u | jq -R -s -c 'split("\n") | map(select(. != ""))')
+            if [ "$CHANGED" = "[]" ]; then
+              # templates changed — rebuild all
+              ALL=$(ls -d books/*/ 2>/dev/null | xargs -I{} basename {} | jq -R -s -c 'split("\n") | map(select(. != ""))')
+              echo "books=$ALL" >> "$GITHUB_OUTPUT"
+            else
+              echo "books=$CHANGED" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            ALL=$(ls -d books/*/ 2>/dev/null | xargs -I{} basename {} | jq -R -s -c 'split("\n") | map(select(. != ""))')
+            echo "books=$ALL" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: detect-books
+    if: needs.detect-books.outputs.books != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        book: ${{ fromJson(needs.detect-books.outputs.books) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pandoc and LaTeX
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-fonts-extra lmodern
+
+      - name: Build PDF
+        run: |
+          BOOK_DIR="books/${{ matrix.book }}"
+          METADATA="$BOOK_DIR/metadata.yml"
+          OUTPUT="$BOOK_DIR/${{ matrix.book }}.pdf"
+
+          PANDOC_ARGS="--pdf-engine=xelatex"
+
+          if [ -f "$METADATA" ]; then
+            PANDOC_ARGS="$PANDOC_ARGS --metadata-file=$METADATA"
+          fi
+
+          if [ -f "templates/book.tex" ]; then
+            PANDOC_ARGS="$PANDOC_ARGS --template=templates/book.tex"
+          fi
+
+          pandoc $PANDOC_ARGS -o "$OUTPUT" "$BOOK_DIR/book.md"
+          echo "Built: $OUTPUT"
+
+      - name: Upload PDF
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.book }}-pdf
+          path: books/${{ matrix.book }}/${{ matrix.book }}.pdf
+          retention-days: 90
