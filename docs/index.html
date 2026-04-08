@@ -329,37 +329,46 @@ function logout() {
 
 // ── Load Book ──
 async function loadBook() {
-  // Load metadata
-  const metaRes = await ghGet(`${BOOK_PATH}/metadata.yml`);
-  const metaText = atob(metaRes.content.replace(/\n/g, ''));
-  const titleMatch = metaText.match(/title:\s*"(.+?)"/);
-  const authorMatch = metaText.match(/author:\s*"(.+?)"/);
-  document.getElementById('book-title').textContent = titleMatch ? titleMatch[1] : BOOK;
-  document.getElementById('book-author').textContent = authorMatch ? authorMatch[1] : '';
+  showStatus('Loading book...');
+  try {
+    // Load metadata
+    const metaRes = await ghGet(`${BOOK_PATH}/metadata.yml`);
+    const metaText = decodeContent(metaRes.content);
+    const titleMatch = metaText.match(/title:\s*"(.+?)"/);
+    const authorMatch = metaText.match(/author:\s*"(.+?)"/);
+    document.getElementById('book-title').textContent = titleMatch ? titleMatch[1] : BOOK;
+    document.getElementById('book-author').textContent = authorMatch ? authorMatch[1] : '';
 
-  // Load file listing
-  const listing = await ghGet(BOOK_PATH);
-  const mdFiles = listing.filter(f => f.name.endsWith('.md')).sort((a, b) => a.name.localeCompare(b.name));
+    // Load file listing (Contents API returns name, path, sha for each file)
+    const listing = await ghGet(BOOK_PATH);
+    const mdEntries = listing.filter(f => f.name.endsWith('.md')).sort((a, b) => a.name.localeCompare(b.name));
 
-  // Load each file
-  files = [];
-  const promises = mdFiles.map(async (f) => {
-    const content = await ghGet(f.path);
-    const text = decodeContent(content.content);
-    const parsed = parseFrontmatter(text);
-    return {
-      name: f.name,
-      path: f.path,
-      sha: content.sha,
-      meta: parsed.meta,
-      body: parsed.body,
-      originalBody: parsed.body,
-      originalTitle: parsed.meta.title || '',
-    };
-  });
-  files = await Promise.all(promises);
-  files.sort((a, b) => a.name.localeCompare(b.name));
-  renderChapters();
+    showStatus(`Loading ${mdEntries.length} chapters...`);
+
+    // Load each file content
+    files = [];
+    const promises = mdEntries.map(async (f) => {
+      const content = await ghGet(f.path);
+      const text = decodeContent(content.content);
+      const parsed = parseFrontmatter(text);
+      return {
+        name: f.name,
+        path: f.path,
+        sha: content.sha,
+        meta: parsed.meta,
+        body: parsed.body,
+        originalBody: parsed.body,
+        originalTitle: parsed.meta.title || '',
+      };
+    });
+    files = await Promise.all(promises);
+    files.sort((a, b) => a.name.localeCompare(b.name));
+    hideStatus();
+    renderChapters();
+  } catch (e) {
+    showStatus('Error loading book: ' + e.message);
+    console.error(e);
+  }
 }
 
 function decodeContent(b64) {
