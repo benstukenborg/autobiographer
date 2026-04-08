@@ -262,10 +262,10 @@
 
 <div id="auth-screen">
   <h1>Autobiographer</h1>
-  <p>Enter the family password to continue</p>
-  <input type="password" id="password-input" placeholder="Password" autocomplete="off" onkeydown="if(event.key==='Enter')authenticate()">
+  <p>Enter your access code to continue</p>
+  <input type="password" id="password-input" placeholder="Paste access code" autocomplete="off" onkeydown="if(event.key==='Enter')authenticate()">
   <button class="auth-btn" onclick="authenticate()">Continue</button>
-  <div id="auth-error">Incorrect password. Please try again.</div>
+  <div id="auth-error">Invalid access code. Please try again.</div>
 </div>
 
 <div id="app">
@@ -290,37 +290,40 @@ const BOOK = 'ralph-gorman';
 const BOOK_PATH = `books/${BOOK}`;
 const API = 'https://api.github.com';
 
-const PASSWORD = 'gormanfamily';
-const PAT = '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';
-
 let token = '';
 let files = [];       // { name, path, sha, meta, body, originalBody, originalTitle }
 let modified = new Set();
 
 // ── Auth ──
 async function authenticate() {
-  const pw = document.getElementById('password-input').value.trim();
-  if (pw !== PASSWORD) {
+  const t = document.getElementById('password-input').value.trim();
+  if (!t) return;
+  try {
+    const res = await fetch(`${API}/repos/${REPO}`, {
+      headers: { Authorization: `Bearer ${t}` }
+    });
+    if (!res.ok) throw new Error();
+    token = t;
+    localStorage.setItem('autobiographer_token', t);
+    document.getElementById('auth-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    loadBook();
+  } catch {
     document.getElementById('auth-error').style.display = 'block';
-    return;
   }
-  token = PAT;
-  localStorage.setItem('autobiographer_auth', 'true');
-  document.getElementById('auth-screen').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
-  loadBook();
 }
 
 function logout() {
-  localStorage.removeItem('autobiographer_auth');
+  localStorage.removeItem('autobiographer_token');
   token = '';
   location.reload();
 }
 
 // ── Load on start ──
 (function init() {
-  if (localStorage.getItem('autobiographer_auth') === 'true') {
-    token = PAT;
+  const saved = localStorage.getItem('autobiographer_token');
+  if (saved) {
+    token = saved;
     document.getElementById('auth-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
     loadBook();
