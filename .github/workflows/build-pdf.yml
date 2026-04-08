@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - 'books/**'
-      - 'templates/**'
+      - 'generator/**'
   workflow_dispatch:
     inputs:
       book:
@@ -27,10 +27,8 @@ jobs:
           if [ -n "${{ github.event.inputs.book }}" ]; then
             echo "books=[\"${{ github.event.inputs.book }}\"]" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event_name }}" = "push" ]; then
-            # Find books with changed files
             CHANGED=$(git diff --name-only HEAD~1 HEAD -- books/ | cut -d/ -f2 | sort -u | jq -R -s -c 'split("\n") | map(select(. != ""))')
             if [ "$CHANGED" = "[]" ]; then
-              # templates changed — rebuild all
               ALL=$(ls -d books/*/ 2>/dev/null | xargs -I{} basename {} | jq -R -s -c 'split("\n") | map(select(. != ""))')
               echo "books=$ALL" >> "$GITHUB_OUTPUT"
             else
@@ -51,29 +49,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Pandoc and LaTeX
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pandoc texlive-xetex texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-fonts-extra lmodern
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: cd generator && npm ci
 
       - name: Build PDF
-        run: |
-          BOOK_DIR="books/${{ matrix.book }}"
-          METADATA="$BOOK_DIR/metadata.yml"
-          OUTPUT="$BOOK_DIR/${{ matrix.book }}.pdf"
-
-          PANDOC_ARGS="--pdf-engine=xelatex"
-
-          if [ -f "$METADATA" ]; then
-            PANDOC_ARGS="$PANDOC_ARGS --metadata-file=$METADATA"
-          fi
-
-          if [ -f "templates/book.tex" ]; then
-            PANDOC_ARGS="$PANDOC_ARGS --template=templates/book.tex"
-          fi
-
-          pandoc $PANDOC_ARGS -o "$OUTPUT" "$BOOK_DIR/book.md"
-          echo "Built: $OUTPUT"
+        run: node generator/generate.mjs books/${{ matrix.book }}
 
       - name: Upload PDF
         uses: actions/upload-artifact@v4
